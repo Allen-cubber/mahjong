@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>麻将决策辅助终端 v1.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 基础字体样式优化 */
+        .mahjong-tile { font-family: "Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", sans-serif; font-size: 3.2rem; line-height: 1; text-shadow: 1px 1px 2px rgba(0,0,0,0.15); cursor: pointer; user-select: none; transition: transform 0.1s, background-color 0.1s; }
+        .mahjong-tile:hover { transform: translateY(-3px); }
+        .mahjong-tile:active { transform: translateY(0); }
+        .mahjong-tile-small { font-family: "Segoe UI Emoji", "Noto Color Emoji", sans-serif; font-size: 2rem; line-height: 1; }
+
+        /* 【新增】：麻将牌色指定 */
+        .tile-man { color: #D32F2F; } /* 万子：深红 */
+        .tile-pin { color: #1976D2; } /* 筒子：深蓝 */
+        .tile-sou { color: #388E3C; } /* 索子：深绿 */
+        .tile-zi { color: #424242; }  /* 字牌：深灰 */
+
+        .tile-btn { @apply bg-white border-2 border-gray-200 rounded-lg shadow-sm flex items-center justify-center p-1 h-16 hover:border-blue-400 hover:bg-blue-50; }
+        .hand-tile { @apply bg-white border-b-4 border-gray-300 rounded-t shadow-md px-1 pb-1 mx-[2px]; }
+
+        /* Checkbox 开关动画 */
+        input:checked ~ .dot { transform: translateX(100%); background-color: #60A5FA; }
+        input:not(:checked) ~ .dot { transform: translateX(0); background-color: #9CA3AF; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen font-sans pb-20">
+
+<div class="container mx-auto px-4 py-6 max-w-4xl">
+    <div class="bg-gray-800 text-white rounded-t-xl p-4 flex justify-between items-center shadow-lg">
+        <div>
+            <span class="text-sm text-gray-400 block mb-1">当前阶段</span>
+            <span id="phaseIndicator" class="text-xl font-bold text-yellow-400">🟡 起手配牌</span>
+        </div>
+        <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2 border-r border-gray-600 pr-4">
+                <label class="text-xs text-gray-400">场风</label>
+                <select id="roundWind" class="bg-gray-700 text-white rounded text-sm outline-none px-1 py-0.5 cursor-pointer" onchange="requestAnalysis()">
+                    <option value="27" selected>东</option>
+                    <option value="28">南</option>
+                    <option value="29">西</option>
+                    <option value="30">北</option>
+                </select>
+                <label class="text-xs text-gray-400 ml-2">自风</label>
+                <select id="playerWind" class="bg-gray-700 text-white rounded text-sm outline-none px-1 py-0.5 cursor-pointer" onchange="requestAnalysis()">
+                    <option value="27">东</option>
+                    <option value="28" selected>南</option>
+                    <option value="29">西</option>
+                    <option value="30">北</option>
+                </select>
+            </div>
+
+            <label class="flex items-center cursor-pointer" title="关闭后将不验证役种，强行给分">
+                <div class="relative">
+                    <input type="checkbox" id="requireYaku" class="sr-only" checked onchange="requestAnalysis()">
+                    <div class="block bg-gray-600 w-10 h-6 rounded-full"></div>
+                    <div class="dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition transform bg-blue-400"></div>
+                </div>
+                <div class="ml-2 text-sm font-bold text-gray-300">无役不能和</div>
+            </label>
+
+            <button onclick="resetGame()" class="bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded font-bold text-sm transition ml-2">↻ 重置</button>
+
+            <button onclick="window.location.href='/match'" class="bg-purple-600 hover:bg-purple-500 px-4 py-1.5 rounded font-bold text-sm transition ml-4 shadow-[0_0_10px_rgba(147,51,234,0.5)] border border-purple-400 flex items-center">
+                ⚔️ 进入对战沙盒
+            </button>
+        </div>
+    </div>
+
+    <div class="bg-white p-6 shadow-md rounded-b-xl mb-6">
+        <div id="doraContainer" class="hidden mb-4 border-b pb-4 bg-yellow-50 p-2 rounded border border-yellow-200 shadow-inner">
+            <h2 class="text-sm font-bold text-yellow-800 mb-2">✨ 宝牌指示牌 <span class="text-xs font-normal text-yellow-600">(点击可取消)</span></h2>
+            <div id="doraArea" class="flex flex-wrap gap-2 items-end"></div>
+        </div>
+
+        <div id="meldContainer" class="hidden mb-4 border-b pb-4 bg-orange-50 p-2 rounded">
+            <h2 class="text-sm font-bold text-gray-600 mb-2">我的副露 (吃/碰/杠) <span class="text-xs font-normal text-gray-400">点击可取消</span></h2>
+            <div id="meldArea" class="flex flex-wrap gap-3 items-end"></div>
+        </div>
+
+        <div class="mb-6 border-b pb-4">
+            <div class="flex justify-between items-end mb-2">
+                <h2 class="text-lg font-bold text-gray-700">我的手牌</h2>
+                <span id="shantenBadge" class="hidden text-xs font-bold px-2 py-1 rounded"></span>
+            </div>
+            <div id="handArea" class="flex flex-wrap min-h-[5rem] bg-green-100/50 p-3 rounded-xl border-2 border-green-200 items-end justify-center shadow-inner"></div>
+            <p id="handHint" class="text-xs text-gray-400 mt-2 text-center">点击下方牌库选择起手牌...</p>
+        </div>
+
+        <div id="resultArea" class="hidden mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h3 class="font-bold text-blue-800 mb-3 flex items-center">✨ AI 决策建议 <span class="text-xs font-normal text-blue-600 ml-2 animate-pulse">(点击下方选项可直接打出)</span></h3>
+            <div id="recommendationsList" class="space-y-3"></div>
+        </div>
+    </div>
+
+    <div class="bg-white p-6 shadow-md rounded-xl">
+        <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-2">
+            <h2 class="text-lg font-bold text-gray-700">交互键盘</h2>
+            <div class="flex flex-wrap bg-gray-200 rounded-lg p-1 gap-1 shadow-inner">
+                <button id="modeSelf" onclick="setKeyboardMode('self')" class="px-4 py-1 rounded-md bg-white shadow text-sm font-bold text-blue-600 transition">📥 摸牌</button>
+                <button id="modeOpponent" onclick="setKeyboardMode('opponent')" class="px-4 py-1 rounded-md text-sm font-bold text-gray-500 hover:text-gray-700 transition">👁️ 死牌</button>
+                <button id="modeDora" onclick="setKeyboardMode('dora')" class="px-4 py-1 rounded-md text-sm font-bold text-gray-500 hover:text-yellow-600 transition">✨ 宝牌</button>
+                <button id="modeKan" onclick="setKeyboardMode('kan')" class="px-4 py-1 rounded-md text-sm font-bold text-gray-500 hover:text-gray-700 transition">🀄 杠牌</button>
+                <button id="modePon" onclick="setKeyboardMode('pon')" class="px-4 py-1 rounded-md text-sm font-bold text-gray-500 hover:text-gray-700 transition">🔗 碰牌</button>
+            </div>
+        </div>
+        <div id="paletteArea" class="grid grid-cols-9 gap-1.5"></div>
+        <div class="mt-4 pt-4 border-t">
+            <h3 class="text-sm font-bold text-gray-600 mb-2">场上已记录的死牌: <span id="deadCount" class="text-gray-400 font-normal">0张</span></h3>
+            <div id="deadArea" class="flex flex-wrap gap-x-0.5 gap-y-1 text-2xl opacity-80"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let state = { hand: [], dead: [], melds: [], dora: [], phase: 'INIT', keyboardMode: 'self' };
+
+    const UNICODE_TILES = [
+        "🀇\uFE0E","🀈\uFE0E","🀉\uFE0E","🀊\uFE0E","🀋\uFE0E","🀌\uFE0E","🀍\uFE0E","🀎\uFE0E","🀏\uFE0E", // 万子
+        "🀙\uFE0E","🀚\uFE0E","🀛\uFE0E","🀜\uFE0E","🀝\uFE0E","🀞\uFE0E","🀟\uFE0E","🀠\uFE0E","🀡\uFE0E", // 筒子
+        "🀐\uFE0E","🀑\uFE0E","🀒\uFE0E","🀓\uFE0E","🀔\uFE0E","🀕\uFE0E","🀖\uFE0E","🀗\uFE0E","🀘\uFE0E", // 索子
+        "🀀\uFE0E","🀁\uFE0E","🀂\uFE0E","🀃\uFE0E", // 东南西北
+        "🀆\uFE0E","🀅\uFE0E","🀄\uFE0E" // 白发中
+    ];
+
+    // 【新增】：获取牌 ID 对应的颜色 CSS 类
+    function getTileColorClass(id) {
+        if (id >= 0 && id <= 8) return 'tile-man';
+        if (id >= 9 && id <= 17) return 'tile-pin';
+        if (id >= 18 && id <= 26) return 'tile-sou';
+        return 'tile-zi';
+    }
+
+    function getTileCount(tileId) {
+        let count = state.hand.filter(id => id === tileId).length + state.dead.filter(id => id === tileId).length + state.dora.filter(id => id === tileId).length;
+        state.melds.forEach(m => { if (m.tile === tileId) count += (m.type === 'kan' ? 4 : 3); });
+        return count;
+    }
+
+    function getTargetHandSize() { return 13 - state.melds.length * 3; }
+
+    function renderPalette() {
+        const palette = document.getElementById('paletteArea');
+        palette.innerHTML = '';
+        UNICODE_TILES.forEach((char, id) => {
+            const btn = document.createElement('div');
+            btn.id = `palette-btn-${id}`;
+            // 【修改】：加入颜色类
+            btn.className = `tile-btn mahjong-tile transition-all duration-200 ${getTileColorClass(id)}`;
+            btn.innerText = char;
+            btn.onclick = () => handlePaletteClick(id);
+            palette.appendChild(btn);
+        });
+    }
+
+    function setKeyboardMode(mode) {
+        state.keyboardMode = mode;
+        const modes = ['Self', 'Opponent', 'Kan', 'Pon', 'Dora'];
+        modes.forEach(m => {
+            const btn = document.getElementById('mode' + m);
+            if (mode === m.toLowerCase()) {
+                btn.className = "px-4 py-1 rounded-md bg-white shadow text-sm font-bold text-blue-600 transition";
+                if(mode === 'opponent') btn.classList.replace('text-blue-600', 'text-gray-800');
+                if(mode === 'kan' || mode === 'pon') btn.classList.replace('text-blue-600', 'text-orange-600');
+                if(mode === 'dora') btn.classList.replace('text-blue-600', 'text-yellow-600');
+            } else {
+                btn.className = "px-4 py-1 rounded-md text-sm font-bold text-gray-500 hover:text-gray-700 transition";
+            }
+        });
+    }
+
+    function handlePaletteClick(tileId) {
+        if (state.keyboardMode === 'dora') {
+            if (getTileCount(tileId) >= 4) return alert("数量已满4张");
+            if (state.dora.length >= 5) return alert("最多5张宝牌指示牌");
+            state.dora.push(tileId); updateUI(); return;
+        }
+        if (state.keyboardMode === 'opponent') {
+            if (getTileCount(tileId) >= 4) return alert("数量已满4张");
+            state.dead.push(tileId); updateUI(); return;
+        }
+        if (state.keyboardMode === 'kan' || state.keyboardMode === 'pon') {
+            const required = state.keyboardMode === 'kan' ? 4 : 3;
+            if (getTileCount(tileId) + required > 4) return alert("数量不足以副露");
+            state.melds.push({ type: state.keyboardMode, tile: tileId }); checkPhase(); updateUI(); return;
+        }
+        if (getTileCount(tileId) >= 4) return alert("数量已满4张");
+        const targetSize = getTargetHandSize();
+        if (state.phase === 'INIT' && state.hand.length < targetSize) { state.hand.push(tileId); }
+        else if (state.phase === 'DRAW' && state.hand.length === targetSize) { state.hand.push(tileId); requestAnalysis(); }
+        else if (state.phase === 'DISCARD') { alert("请先打出一张牌"); }
+        checkPhase(); updateUI();
+    }
+
+    function handleHandClick(index) {
+        if (state.phase === 'DISCARD' && state.hand.length === getTargetHandSize() + 1) {
+            state.dead.push(state.hand.splice(index, 1)[0]);
+            document.getElementById('resultArea').classList.add('hidden');
+        } else { state.hand.splice(index, 1); }
+        checkPhase(); updateUI();
+    }
+
+    function checkPhase() {
+        const targetSize = getTargetHandSize();
+        if (state.hand.length < targetSize) state.phase = 'INIT';
+        else if (state.hand.length === targetSize) state.phase = 'DRAW';
+        else if (state.hand.length === targetSize + 1) state.phase = 'DISCARD';
+    }
+
+    function updateUI() {
+        // 渲染手牌
+        const sortedHand = [...state.hand].sort((a, b) => a - b);
+        const handArea = document.getElementById('handArea');
+        handArea.innerHTML = '';
+        sortedHand.forEach(id => {
+            const span = document.createElement('span');
+            // 【修改】：加入颜色类
+            span.className = `mahjong-tile hand-tile hover:bg-yellow-50 cursor-pointer ${getTileColorClass(id)}`;
+            span.innerText = UNICODE_TILES[id];
+            span.onclick = () => handleHandClick(state.hand.indexOf(id));
+            handArea.appendChild(span);
+        });
+
+        // 渲染副露
+        const meldArea = document.getElementById('meldArea');
+        meldArea.innerHTML = '';
+        document.getElementById('meldContainer').classList.toggle('hidden', state.melds.length === 0);
+        state.melds.forEach((m, index) => {
+            const group = document.createElement('div');
+            group.className = 'flex bg-white border-b-4 border-orange-300 rounded-t p-1 cursor-pointer hover:bg-red-50 shadow-sm mx-1 items-end';
+            group.onclick = () => { state.melds.splice(index, 1); checkPhase(); updateUI(); };
+            for(let i=0; i < (m.type === 'kan' ? 4 : 3); i++) {
+                const span = document.createElement('span');
+                // 【修改】：加入颜色类
+                span.className = `mahjong-tile-small mx-[1px] ${getTileColorClass(m.tile)}`;
+                span.innerText = UNICODE_TILES[m.tile];
+                group.appendChild(span);
+            }
+            meldArea.appendChild(group);
+        });
+
+        // 渲染宝牌指示牌
+        const doraArea = document.getElementById('doraArea');
+        doraArea.innerHTML = '';
+        document.getElementById('doraContainer').classList.toggle('hidden', state.dora.length === 0);
+        state.dora.forEach((id, index) => {
+            const span = document.createElement('span');
+            // 【修改】：加入颜色类
+            span.className = `mahjong-tile-small hand-tile hover:bg-red-50 cursor-pointer bg-white shadow px-1 rounded border-yellow-300 ${getTileColorClass(id)}`;
+            span.innerText = UNICODE_TILES[id];
+            span.onclick = () => { state.dora.splice(index, 1); updateUI(); };
+            doraArea.appendChild(span);
+        });
+
+        // 渲染死牌 (需要重写渲染方式以支持各自的颜色)
+        const deadArea = document.getElementById('deadArea');
+        deadArea.innerHTML = '';
+        state.dead.forEach(id => {
+            const span = document.createElement('span');
+            // 【修改】：加入颜色类
+            span.className = getTileColorClass(id);
+            span.innerText = UNICODE_TILES[id];
+            deadArea.appendChild(span);
+        });
+        document.getElementById('deadCount').innerText = `${state.dead.length}张`;
+
+        // 状态指示器与键盘防呆 (省略，无变化)
+        const indicator = document.getElementById('phaseIndicator');
+        const hint = document.getElementById('handHint');
+        const tSize = getTargetHandSize();
+        if (state.phase === 'INIT') { indicator.innerText = `🟡 起手配牌 (${state.hand.length}/${tSize})`; hint.innerText = "点击下方牌库选择起手牌..."; }
+        else if (state.phase === 'DRAW') { indicator.innerText = `🟢 等待摸牌 (当前${tSize}张)`; hint.innerText = "轮到你摸牌了..."; }
+        else if (state.phase === 'DISCARD') { indicator.innerText = `🔴 决策中 (当前${tSize+1}张)`; hint.innerText = "根据建议，点击你要打出的手牌..."; }
+        UNICODE_TILES.forEach((char, id) => {
+            const btn = document.getElementById(`palette-btn-${id}`);
+            if (btn) {
+                if (getTileCount(id) >= 4) { btn.classList.add('opacity-30', 'cursor-not-allowed', 'bg-gray-200'); btn.classList.remove('hover:border-blue-400', 'hover:bg-blue-50', 'bg-white'); }
+                else { btn.classList.remove('opacity-30', 'cursor-not-allowed', 'bg-gray-200'); btn.classList.add('hover:border-blue-400', 'hover:bg-blue-50', 'bg-white'); }
+            }
+        });
+    }
+
+    async function requestAnalysis() {
+        try {
+            const requireYaku = document.getElementById('requireYaku').checked;
+            // 新增：获取风牌的值 (字符串转数字)
+            const roundWind = parseInt(document.getElementById('roundWind').value);
+            const playerWind = parseInt(document.getElementById('playerWind').value);
+
+            const res = await fetch('/api/evaluate_state', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // 修改：将 round_wind 和 player_wind 加入发送内容
+                body: JSON.stringify({
+                    hand: state.hand, dead: state.dead, melds: state.melds, dora: state.dora,
+                    require_yaku: requireYaku, round_wind: roundWind, player_wind: playerWind
+                })
+            });
+            const data = await res.json();
+            if (res.ok) renderResults(data); else alert("出错: " + data.error);
+        } catch (e) { console.error(e); }
+    }
+    function renderResults(data) {
+        document.getElementById('resultArea').classList.remove('hidden');
+        document.getElementById('shantenBadge').classList.remove('hidden');
+        const badge = document.getElementById('shantenBadge');
+        const list = document.getElementById('recommendationsList');
+        list.innerHTML = '';
+
+        // 1. 顶部状态徽章与胡牌拦截
+        if (data.shanten === -1) {
+            badge.innerText = '🎉 已和牌';
+            badge.className = 'bg-red-100 text-red-800 text-sm font-bold px-3 py-1 rounded ml-2 border border-red-300';
+            list.innerHTML = `<div class="p-8 text-center bg-red-50 rounded-xl border-2 border-red-200 shadow-sm mt-2"><div class="text-4xl mb-4">🏆</div><div class="text-2xl font-bold text-red-600">胡牌啦！</div></div>`;
+            return; // 胡牌后直接中止，不渲染打牌建议
+        } else if (data.shanten === 0) {
+            badge.innerText = '已听牌 (进入打点期望模式)';
+            badge.className = 'bg-orange-100 text-orange-800 text-xs font-bold px-2 py-1 rounded ml-2 border border-orange-200';
+        } else {
+            badge.innerText = data.shanten + ' 向听';
+            badge.className = 'bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded ml-2 border border-blue-200';
+        }
+
+        // 2. 遍历渲染 AI 推荐卡片
+        data.recommendations.forEach(rec => {
+            const card = document.createElement('div');
+            // 卡片样式：加入鼠标悬浮特效与手型光标
+            card.className = "bg-white rounded shadow border-l-4 border-blue-400 p-3 flex justify-between items-center mb-2 cursor-pointer transition transform hover:-translate-y-1 hover:shadow-md hover:bg-blue-50";
+
+            // 绑定点击事件：自动去手牌里找这张牌并打出去
+            card.onclick = () => {
+                if (state.phase === 'DISCARD') {
+                    const handIndex = state.hand.indexOf(rec.discard_id);
+                    if (handIndex !== -1) handleHandClick(handIndex);
+                }
+            };
+
+            // 生成进张详情（带颜色支持）
+            const detailsHtml = rec.details.map(d => `<span class="text-xs bg-gray-100 border border-gray-200 rounded px-1 flex items-center shadow-sm"><span class="text-lg mr-0.5 ${getTileColorClass(d.id)}">${d.char}</span>${d.name}(剩<span class="font-bold text-blue-600 ml-0.5">${d.left}</span>)</span>`).join(' ');
+
+            // 【核心透视逻辑】：EV 显示与底层报错拦截
+            let evHtml = '';
+            if (rec.ev !== null && rec.ev !== undefined) {
+                if (rec.ev === 0 && rec.err) {
+                    // 如果被判 0 分且有底层错误信息，直接亮出红牌
+                    evHtml = `<span class="text-xs font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded ml-2 border border-red-300">🚨 判零原因: ${rec.err}</span>`;
+                } else {
+                    // 正常 EV 显示
+                    evHtml = `<span class="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded ml-2 border border-orange-200">🔥 EV: ${Math.round(rec.ev)}</span>`;
+                }
+            }
+
+            // 异常局面预警标签 (退避向听 / 死听)
+            const retreatHtml = rec.is_retreat ? `<span class="text-xs font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded ml-2 border border-red-200 animate-pulse">⚠️ 灵活退向听</span>` : '';
+            const deadHtml = rec.total_ukeire === 0 ? `<span class="text-xs font-bold text-gray-500 bg-gray-200 px-2 py-0.5 rounded ml-2 border border-gray-300">💀 绝对死路</span>` : '';
+
+            // 拼装整张卡片
+            card.innerHTML = `
+                <div class="flex items-center w-full">
+                    <span class="text-4xl mr-4 ${getTileColorClass(rec.discard_id)}">${rec.discard_char}</span>
+                    <div class="flex-1">
+                        <div class="font-bold text-sm text-gray-800 flex items-center flex-wrap gap-y-1">
+                            打出 ${rec.discard_name}
+                            <span class="text-xs text-blue-500 font-normal ml-2 bg-blue-50 px-1 rounded border border-blue-100">进张: ${rec.total_ukeire}</span>
+                            ${evHtml}
+                            ${retreatHtml}
+                            ${deadHtml}
+                        </div>
+                        <div class="flex flex-wrap gap-1 mt-2">${detailsHtml}</div>
+                    </div>
+                </div>`;
+            list.appendChild(card);
+        });
+    }
+
+    function resetGame() { if(confirm("重新开局？")) { state = { hand: [], dead: [], melds: [], dora: [], phase: 'INIT', keyboardMode: 'self' }; setKeyboardMode('self'); document.getElementById('resultArea').classList.add('hidden'); document.getElementById('shantenBadge').classList.add('hidden'); updateUI(); } }
+    renderPalette(); updateUI();
+</script>
+</body>
+</html>

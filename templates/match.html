@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>麻将 AI 模拟对战沙盒</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: sans-serif; }
+
+        /* 经典麻将桌绿呢绒质感 */
+        .mahjong-table { background: radial-gradient(circle, #2f855a 0%, #1c4532 100%); box-shadow: inset 0 0 40px rgba(0,0,0,0.6); }
+        .mahjong-tile { font-family: "Segoe UI Emoji", "Noto Color Emoji", sans-serif; font-size: 2.2rem; line-height: 1; text-shadow: 1px 1px 2px rgba(0,0,0,0.2); }
+        .mahjong-tile-large { font-family: "Segoe UI Emoji", "Noto Color Emoji", sans-serif; font-size: 3.5rem; line-height: 1; text-shadow: 1px 1px 2px rgba(0,0,0,0.2); cursor: pointer; transition: transform 0.1s; }
+        .mahjong-tile-large:hover { transform: translateY(-8px); }
+
+        /* 牌色控制 */
+        .tile-man { color: #D32F2F; }
+        .tile-pin { color: #1976D2; }
+        .tile-sou { color: #388E3C; }
+        .tile-zi { color: #424242; }
+        .tile-back { color: #48bb78; }
+
+        .river-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; width: fit-content; margin: 0 auto; }
+        .hand-container { @apply flex flex-wrap justify-center items-end bg-black/20 p-2 rounded-xl border border-white/10 shadow-inner; }
+
+        /* 纵向玩家优化：旋转90度并不留间隙 */
+        .vertical-hand-container { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; }
+        /* 优化旋转牌块：减小负边距，防止重叠过度 */
+        .rotated-tile {
+            display: inline-block; /* 必须是 inline-block 才能正确计算尺寸 */
+            transform: rotate(90deg);
+            /* 调整这里：-6px 到 -8px 之间通常最像真实重叠，-10px 太挤了 */
+            margin: -7px 0;
+            line-height: 1;
+        }
+        /* 增强牌背视觉：加入白色背景和实体感 */
+        .tile-back {
+            background-color: #ffffff; /* 强制背景为纯白 */
+            border-radius: 4px;        /* 稍微圆角 */
+            box-shadow: 1px 1px 2px rgba(0,0,0,0.15); /* 增加投影立体感 */
+            color: #2f855a;            /* 内部线条保持绿色 */
+            display: inline-block;
+        }
+
+        /* 副露组间隔样式 */
+        .meld-group { display: flex; margin-left: 12px; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 4px; }
+        .vertical-meld-group { display: flex; flex-direction: column; margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 4px; }
+
+        #p1Hand, #p3Hand { height: 320px; display: flex; align-items: center; }
+
+        /* 鸣牌动作菜单 */
+        .action-overlay { background: rgba(0,0,0,0.5);}
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center py-4 text-gray-800">
+
+<div class="w-full max-w-7xl px-4 flex flex-col gap-4">
+
+    <div class="flex justify-between items-center bg-gray-800 p-4 rounded-xl shadow-lg border border-gray-700">
+        <div>
+            <h1 class="text-xl font-bold text-blue-400 flex items-center">⚔️ 模拟对战沙盒</h1>
+            <p id="gameStatusText" class="text-sm text-gray-400 mt-1">等待开局...</p>
+        </div>
+        <div class="flex gap-4 items-center">
+            <button onclick="window.location.href='/'" class="text-gray-400 hover:text-white text-sm font-bold underline transition mr-2">&larr; 返回牌理分析</button>
+            <button onclick="startMatch()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded font-bold shadow transition">🚀 新局开始</button>
+        </div>
+    </div>
+
+    <div class="flex flex-col lg:flex-row gap-6 items-start">
+
+        <div class="flex-1 w-full flex flex-col gap-4 relative">
+
+            <div id="actionMenu" class="hidden absolute inset-0 z-50 action-overlay rounded-2xl flex flex-col items-center justify-center gap-6">
+                <h2 class="text-2xl font-bold text-white tracking-widest">📣 鸣牌机会</h2>
+                <div id="actionButtons" class="flex gap-4"></div>
+                <button onclick="skipAction()" class="bg-gray-500 hover:bg-gray-400 text-white px-10 py-3 rounded-xl font-bold transition">跳过 (Pass)</button>
+            </div>
+
+            <div class="mahjong-table rounded-2xl p-5 relative flex flex-col justify-between shadow-2xl border-4 border-gray-800" style="min-height: 520px;">
+
+                <div class="text-center">
+                    <div class="text-xs text-gray-300 font-bold mb-1">🤖 P2 (对家)</div>
+                    <div id="p2Hand" class="mb-1"></div>
+                    <div id="p2River" class="river-grid"></div>
+                </div>
+
+                <div class="flex justify-between items-center w-full">
+                    <div class="flex flex-col items-center w-1/5">
+                        <div class="text-xs text-gray-300 font-bold mb-1">🤖 P3</div>
+                        <div id="p3Hand"></div>
+                        <div id="p3River" class="river-grid mt-2" style="grid-template-columns: repeat(3, 1fr);"></div>
+                    </div>
+
+                    <div class="bg-black/40 border-2 border-green-500 rounded-xl p-3 text-center w-1/3 shadow-2xl backdrop-blur-sm relative">
+                        <div id="turnIndicator" class="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-yellow-400 text-black text-xs font-bold px-3 py-1 rounded-full shadow animate-pulse hidden">你的回合</div>
+                        <div class="text-green-300 text-sm font-bold">🀄 剩余牌数: <span id="wallCount" class="text-white text-lg">70</span></div>
+                        <div id="doraArea" class="flex justify-center text-2xl mt-1"></div>
+                    </div>
+
+                    <div class="flex flex-col items-center w-1/5">
+                        <div class="text-xs text-gray-300 font-bold mb-1">🤖 P1</div>
+                        <div id="p1River" class="river-grid mb-2" style="grid-template-columns: repeat(3, 1fr);"></div>
+                        <div id="p1Hand"></div>
+                    </div>
+                </div>
+
+                <div class="mt-2">
+                    <div id="p0River" class="river-grid mb-2"></div>
+                    <div class="pt-3 border-t border-white/10">
+                        <div class="flex justify-between items-end mb-1 px-2">
+                            <h2 class="text-sm font-bold text-green-200">👋 我的手牌 (P0)</h2>
+                            <span id="shantenBadge" class="hidden text-xs font-bold px-2 py-0.5 rounded"></span>
+                        </div>
+                        <div id="myHand" class="hand-container min-h-[5.5rem]">
+                            <p class="text-green-100/50 text-xs py-4">点击“新局开始”进入对局</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="w-full lg:w-96 flex-shrink-0 sticky top-4">
+            <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-md min-h-[400px]">
+                <h2 class="text-lg font-bold text-gray-700 border-b pb-2 mb-4 flex items-center">✨ 战术建议</h2>
+                <div id="resultArea" class="hidden">
+                    <div id="recommendationsList" class="space-y-3"></div>
+                </div>
+                <div id="idleStateText" class="text-gray-400 text-sm text-center py-10">等待分析机会...</div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    const UNICODE_TILES = [
+        "🀇\uFE0E","🀈\uFE0E","🀉\uFE0E","🀊\uFE0E","🀋\uFE0E","🀌\uFE0E","🀍\uFE0E","🀎\uFE0E","🀏\uFE0E",
+        "🀙\uFE0E","🀚\uFE0E","🀛\uFE0E","🀜\uFE0E","🀝\uFE0E","🀞\uFE0E","🀟\uFE0E","🀠\uFE0E","🀡\uFE0E",
+        "🀐\uFE0E","🀑\uFE0E","🀒\uFE0E","🀓\uFE0E","🀔\uFE0E","🀕\uFE0E","🀖\uFE0E","🀗\uFE0E","🀘\uFE0E",
+        "🀀\uFE0E","🀁\uFE0E","🀂\uFE0E","🀃\uFE0E","🀆\uFE0E","🀅\uFE0E","🀄\uFE0E"
+    ];
+    const TILE_BACK = "🀫\uFE0E";
+
+    function getTileColorClass(id) {
+        if (id >= 0 && id <= 8) return 'tile-man';
+        if (id >= 9 && id <= 17) return 'tile-pin';
+        if (id >= 18 && id <= 26) return 'tile-sou';
+        return id === 33 ? 'tile-man' : 'tile-zi';
+    }
+
+    let gameState = null;
+    let isMyTurn = false;
+
+    async function startMatch() {
+        hideRecommendations();
+        const res = await fetch('/api/match/start', { method: 'POST' });
+        gameState = await res.json();
+        renderTable();
+        checkAndRunBots();
+    }
+
+    function renderTable() {
+        if (!gameState || !gameState.players) return;
+        document.getElementById('wallCount').innerText = gameState.wall_remaining;
+        document.getElementById('doraArea').innerHTML = gameState.dora_indicators.map(id => `<span class="mahjong-tile bg-white shadow rounded mx-[1px] px-1 ${getTileColorClass(id)}">${UNICODE_TILES[id]}</span>`).join('');
+
+        gameState.players.forEach(p => {
+            const riverDiv = document.getElementById(`p${p.index}River`);
+            if (riverDiv) riverDiv.innerHTML = p.discards.map(id => `<span class="mahjong-tile bg-white shadow-sm border border-gray-300 rounded px-0.5 ${getTileColorClass(id)}">${UNICODE_TILES[id]}</span>`).join('');
+
+            if (p.index !== 0) {
+            const handDiv = document.getElementById(`p${p.index}Hand`);
+            const isVertical = (p.index === 1 || p.index === 3);
+
+            let html = `<div class="${isVertical ? 'vertical-hand-container' : 'flex justify-center'}">`;
+            const isOver = gameState.is_game_over;
+
+            if (isOver) {
+                // 游戏结束显示明牌
+                const sorted = [...p.hand].sort((a,b) => a-b);
+                html += sorted.map(id => `<span class="mahjong-tile bg-white shadow-sm border border-gray-300 rounded px-0.5 ${isVertical ? 'rotated-tile' : ''} ${getTileColorClass(id)}">${UNICODE_TILES[id]}</span>`).join('');
+            } else {
+                // 【核心修复】：为牌背也加上 mahjong-tile, bg-white, border 等类
+                const cls = isVertical ? 'rotated-tile' : '';
+                html += Array(p.hand_count).fill(`<span class="mahjong-tile bg-white shadow-sm border border-gray-300 rounded px-0.5 tile-back ${cls}">${TILE_BACK}</span>`).join('');
+            }
+            html += '</div>';
+
+                // 渲染 AI 副露
+                if (p.melds.length > 0) {
+                    html += p.melds.map(m => {
+                        const tiles = Array(m.type === 'pon' ? 3 : 4).fill(`<span class="mahjong-tile ${isVertical ? 'rotated-tile' : ''} ${getTileColorClass(m.tile)}">${UNICODE_TILES[m.tile]}</span>`).join('');
+                        return `<div class="${isVertical ? 'vertical-meld-group' : 'meld-group'}">${tiles}</div>`;
+                    }).join('');
+                }
+                handDiv.innerHTML = html;
+                handDiv.className = isVertical ? "flex flex-col items-center" : "flex items-center justify-center";
+            }
+        });
+
+        const myData = gameState.players[0];
+        const myHandDiv = document.getElementById('myHand');
+        isMyTurn = (gameState.current_turn === 0 && !gameState.is_game_over);
+
+        let myHtml = '<div class="flex">';
+        const sortedHand = [...myData.hand].sort((a, b) => a - b);
+        sortedHand.forEach(id => {
+            myHtml += `<span class="mahjong-tile-large bg-white border-b-4 border-gray-300 rounded-t shadow-md px-1 pb-1 mx-[1px] ${getTileColorClass(id)}" onclick="if(isMyTurn) playTile(${id})">${UNICODE_TILES[id]}</span>`;
+        });
+        myHtml += '</div>';
+
+        if (myData.melds.length > 0) {
+            myHtml += myData.melds.map(m => {
+                const tiles = Array(m.type === 'pon' ? 3 : 4).fill(`<span class="mahjong-tile bg-white border border-gray-300 rounded px-1 ${getTileColorClass(m.tile)}">${UNICODE_TILES[m.tile]}</span>`).join('');
+                return `<div class="meld-group items-end mb-1">${tiles}</div>`;
+            }).join('');
+        }
+        myHandDiv.innerHTML = myHtml;
+
+        document.getElementById('turnIndicator').className = isMyTurn ? "absolute -top-3 left-1/2 transform -translate-x-1/2 bg-yellow-400 text-black text-xs font-bold px-3 py-1 rounded-full shadow animate-pulse" : "hidden";
+        document.getElementById('gameStatusText').innerHTML = gameState.is_game_over ? `<span class="text-white bg-red-600 px-4 py-1 rounded-full shadow animate-bounce inline-block">🎯 P${gameState.winner} 胜出！</span>` : `当前：<span class="text-yellow-400 font-bold">P${gameState.current_turn} ${isMyTurn ? '(你)' : '(AI)'}</span>`;
+
+        if (gameState.available_actions && gameState.available_actions.length > 0) showActionMenu(gameState.available_actions);
+        if (isMyTurn) requestAIHelp(myData.hand, myData.melds);
+        else hideRecommendations();
+    }
+
+    function showActionMenu(actions) {
+        const menu = document.getElementById('actionMenu');
+        const btnContainer = document.getElementById('actionButtons');
+        btnContainer.innerHTML = '';
+        menu.classList.remove('hidden');
+        actions.forEach(act => {
+            const btn = document.createElement('button');
+            btn.className = "bg-orange-600 hover:bg-orange-500 text-white px-8 py-4 rounded-2xl font-bold text-xl shadow-2xl transition flex flex-col items-center gap-2";
+            btn.innerHTML = `<span>${act.type === 'pon' ? '碰' : '杠'}</span><span class="text-4xl ${getTileColorClass(act.tile)}">${UNICODE_TILES[act.tile]}</span>`;
+            btn.onclick = () => callMeld(act.type, act.tile);
+            btnContainer.appendChild(btn);
+        });
+    }
+
+    async function callMeld(type, tile) {
+        const res = await fetch('/api/match/call_meld', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type, tile, discarder: gameState.last_discarder })
+        });
+        gameState = await res.json();
+        document.getElementById('actionMenu').classList.add('hidden');
+        renderTable();
+    }
+
+    function skipAction() {
+        document.getElementById('actionMenu').classList.add('hidden');
+        gameState.available_actions = [];
+        checkAndRunBots();
+    }
+
+    async function playTile(tileId) {
+        if (!isMyTurn) return;
+        isMyTurn = false;
+        hideRecommendations();
+        const res = await fetch('/api/match/player_discard', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ discard_tile: tileId })
+        });
+        gameState = await res.json();
+        renderTable();
+        checkAndRunBots();
+    }
+
+    function checkAndRunBots() {
+        if (!gameState || gameState.is_game_over || (gameState.available_actions && gameState.available_actions.length > 0)) return;
+        if (gameState.current_turn !== 0) {
+            setTimeout(async () => {
+                const res = await fetch('/api/match/ai_turn', { method: 'POST' });
+                gameState = await res.json();
+                renderTable();
+                checkAndRunBots();
+            }, 800);
+        }
+    }
+
+    async function requestAIHelp(myHand, myMelds) {
+        let dead = [];
+        gameState.players.forEach(p => {
+            dead.push(...p.discards);
+            p.melds.forEach(m => dead.push(...Array(m.type==='pon'?3:4).fill(m.tile)));
+        });
+        const res = await fetch('/api/evaluate_state', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hand: myHand, dead: dead, melds: myMelds, dora: gameState.dora_indicators })
+        });
+        const data = await res.json();
+        renderResults(data);
+    }
+
+    function renderResults(data) {
+        document.getElementById('resultArea').classList.remove('hidden');
+        document.getElementById('idleStateText').classList.add('hidden');
+        const badge = document.getElementById('shantenBadge');
+        const list = document.getElementById('recommendationsList');
+        list.innerHTML = '';
+        badge.classList.remove('hidden');
+        badge.innerText = data.shanten === -1 ? '🎉 和牌' : (data.shanten === 0 ? '听牌' : data.shanten + ' 向听');
+        badge.className = `text-xs font-bold px-2 py-0.5 rounded ml-2 border ${data.shanten <= 0 ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-blue-100 text-blue-800 border-blue-200'}`;
+
+        if (data.shanten === -1) {
+            list.innerHTML = `<div class="p-6 text-center bg-red-50 rounded-xl border-2 border-red-200 text-red-600 font-bold">🏆 已经胡牌！</div>`;
+            return;
+        }
+
+        data.recommendations.forEach(rec => {
+            const card = document.createElement('div');
+            card.className = "bg-blue-50/50 rounded-lg shadow-sm border border-blue-200 p-3 cursor-pointer hover:bg-blue-100 transition";
+            card.onclick = () => playTile(rec.discard_id);
+            card.innerHTML = `
+                <div class="flex items-center justify-between border-b border-blue-100 pb-2 mb-2">
+                    <div class="flex items-center"><span class="text-3xl mr-2 ${getTileColorClass(rec.discard_id)} bg-white px-1 rounded">${rec.discard_char}</span><span class="font-bold text-sm">打 ${rec.discard_name}</span></div>
+                    <span class="text-xs font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-full">进张: ${rec.total_ukeire}</span>
+                </div>
+                <div class="flex flex-wrap gap-1 mb-2">${rec.details.map(d => `<span class="text-[10px] bg-white border border-gray-200 rounded px-1 flex items-center shadow-sm"><span class="text-base mr-0.5 ${getTileColorClass(d.id)}">${d.char}</span>${d.left}</span>`).join('')}</div>
+                <div class="flex gap-2">${rec.ev ? `<span class="text-[10px] font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded">🔥 EV: ${Math.round(rec.ev)}</span>` : ''}</div>`;
+            list.appendChild(card);
+        });
+    }
+
+    function hideRecommendations() {
+        document.getElementById('resultArea').classList.add('hidden');
+        document.getElementById('shantenBadge').classList.add('hidden');
+        document.getElementById('idleStateText').classList.remove('hidden');
+    }
+</script>
+</body>
+</html>
