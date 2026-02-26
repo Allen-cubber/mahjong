@@ -39,11 +39,11 @@ $$Score = w_1 \cdot EV_{base} + w_2 \cdot Ukeire + w_3 \cdot Utility_{dora}$$
 ## 🚀 本地运行 (Local Setup)
 
 1. **克隆仓库**:
-   ```bash
-   git clone [https://github.com/Allen-cubber/mahjong.git](https://github.com/Allen-cubber/mahjong.git)
-   cd mahjong
+```bash
+git clone [https://github.com/Allen-cubber/mahjong.git](https://github.com/Allen-cubber/mahjong.git)
+cd mahjong
 
-   ```
+```
 
 2. **创建并激活虚拟环境**:
 ```bash
