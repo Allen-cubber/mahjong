@@ -43,7 +43,7 @@ $$Score = w_1 \cdot EV_{base} + w_2 \cdot Ukeire + w_3 \cdot Utility_{dora}$$
    git clone [https://github.com/Allen-cubber/mahjong.git](https://github.com/Allen-cubber/mahjong.git)
    cd mahjong
 
-```
+   ```
 
 2. **创建并激活虚拟环境**:
 ```bash
@@ -87,8 +87,3 @@ python app.py
 ---
 
 *Developed by z2x.*
-
-
-有了这个文档，你的项目基本上就算是正式“竣工”并开源了！你接下来是准备把注意力转回你的博客文章排版上，还是想我们继续给这个沙盒增加类似“战局记分板”的新功能？
-
-```
