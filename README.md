@@ -1,4 +1,4 @@
-# 🀄 日麻 AI 模拟对战沙盒 (Riichi Mahjong AI Sandbox)
+# 🀄 麻将 AI 模拟对战沙盒 (Mahjong AI Sandbox)
 
 ![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)
 ![Flask](https://img.shields.io/badge/Framework-Flask-lightgrey.svg)
